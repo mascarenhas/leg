@@ -7,11 +7,6 @@ module("leg", package.seeall)
 local any = lpeg.P(1)
 
 local function getdef (st, name, args)
-   for i, arg in ipairs(args) do
-     if not st.params[arg] then
-       args[i] = "self[" .. string.format("%q", arg) .. "]"
-     end
-   end
    local alist = table.concat(args, ", ")
    if alist ~= "" then alist = ", " .. alist end
    if not st.params[name] then
@@ -44,7 +39,7 @@ local s = lpeg.P" "^1
 
 local name = lpeg.R("AZ", "az") * lpeg.R("AZ", "az", "09")^0
 
-local exp_follow = lpeg.P"/" + ")" + "}" + ":}" + "~}" + name + -1
+local exp_follow = lpeg.P"/" + ")" + "}" + ":}" + "~}" + ">" + name + -1
 
 name = lpeg.C(name)
 
@@ -52,6 +47,22 @@ name = lpeg.C(name)
 local Identifier = name * lpeg.Carg(1)
 
 local Defname = lpeg.Carg(1) * name * lpeg.Ct((s * name)^0)
+
+local arg_name = name * lpeg.Carg(1) /
+  function (name, st)
+    if not st.params[name] then
+      return "self[" .. string.format("%q", name) .. "]"
+    else
+      return name
+    end
+  end
+
+local arg_exp = lpeg.V"Exp" * lpeg.Carg(1) /
+  function (exp, st)
+    return "function (" .. table.concat(st.params, ", ") .. ")\n return " .. exp .. "\nend"
+  end
+
+local Call = lpeg.Carg(1) * name * lpeg.Ct((s * (arg_name + arg_exp))^0) 
 
 local num = lpeg.C(lpeg.R"09"^1) * S / tonumber
 
@@ -75,7 +86,10 @@ local Class =
 
 local function addparms(s, i, st, name, params)
   st.params = {}
-  for _, p in ipairs(params) do st.params[p] = true end
+  for i, p in ipairs(params) do
+    st.params[p] = true
+    st.params[i] = p
+  end
   return i, st, name, params
 end
 
@@ -144,7 +158,7 @@ local grammar = lpeg.P{ "Grammar",
 	    + "{~" * lpeg.V"Exp" * "~}" / function (term) return "lpeg.Cs(" .. term .. ")" end
             + "{" * lpeg.V"Exp" * "}" / function (term) return "lpeg.C(" .. term .. ")" end
 	    + lpeg.P"." * lpeg.Cc("lpeg.P(1)")
-	    + "<" * Defname * ">" / getdef;
+	    + "<" * Call * ">" / getdef;
   Definition = lpeg.Cmt(Defname, addparms) * S * '<-' * lpeg.V"Exp";
   Grammar = lpeg.Cf(lpeg.V"Definition" / firstdef * lpeg.Cg(lpeg.V"Definition")^0, adddef) /
              function (g) return g .. "\n\nreturn meta_g" end
