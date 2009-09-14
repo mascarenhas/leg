@@ -6,7 +6,7 @@ require "lpeg"
 Implements the following grammar (meta_g) with higher-order productions
 
 S <- <listof num>
-num <- '0'..'9'
+num <- [0-9]+
 listof r <- <r> ',' <listof r> / <r>
 
 meta_g is the "uncooked" grammar, obtained by "compiling" the above leg grammar
