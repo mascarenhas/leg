@@ -109,7 +109,18 @@ end
   return acc .. fun
 end
 
-local function firstdef (st, name, params, exp) return adddef([[
+local function firstdef (st, name, params, exp) 
+  local plist = table.concat(st.extras, ", ")
+  if plist ~= "" then plist = ", " .. plist end
+  return adddef([[
+local lpeg = require "lpeg"
+local leg = require"leg"
+
+local funcs, super]] .. plist .. [[ = ...
+
+funcs = funcs or {}
+super = super or leg.base
+
 local function equalcap (s, i, c)
   if type(c) ~= "string" then return nil end
   local e = #c + i
@@ -122,7 +133,7 @@ local function make_name(g, name, ...)
   return table.concat(names, "_")
 end
 
-local meta_g = { }
+local meta_g = setmetatable({}, { __index = super })
 ]], st, name, params, exp) end
 
 local grammar = lpeg.P{ "Grammar",
@@ -142,9 +153,9 @@ local grammar = lpeg.P{ "Grammar",
                     )
 	    + "->" * S * ( lpeg.Cg(String * lpeg.Cc(function (term, func) return term .. " / ".. string.format("%q", func) end))
 			 + lpeg.P"{}" * lpeg.Cc(nil, function (term) return "lpeg.Ct(" .. term .. ")" end)
-                         + lpeg.Cg(name * lpeg.Cc(function (term, func) return term .. " / ".. func end))
+		         + lpeg.Cg(name * lpeg.Cc(function (term, func) return term .. " / funcs[".. string.format("%q", func) .. "]" end))
                          )
-	    + "=>" * S * lpeg.Cg(name * lpeg.Cc(function (term, func) return "lpeg.Cmt(" .. term .. ", ".. func .. ")" end))
+	    + "=>" * S * lpeg.Cg(name * lpeg.Cc(function (term, func) return "lpeg.Cmt(" .. term .. ", funcs[".. string.format("%q", func) .. "])" end))
             ) * S
           )^0, function (a,b,f) return f(a,b) end );
   Primary = "(" * lpeg.V"Exp" * ")"
@@ -168,7 +179,7 @@ local grammar = S * grammar * (-lpeg.P(1) + patt_error)
 
 function compile (p)
   if type(p) == "function" then return p end
-  local cp = grammar:match(p, 1, { params = {} })
+  local cp = grammar:match(p, 1, { params = {}, extras = {} })
   if not cp then error("incorrect pattern", 3) end
   local fun, err = loadstring(cp)
   if fun then return fun, cp else return cp, err end
@@ -179,3 +190,5 @@ function fix(g, s)
   fix_t[1] = g[s](g,fix_t)
   return lpeg.P(fix_t)
 end
+
+base = {}
