@@ -6,17 +6,15 @@ module("leg", package.seeall)
 
 local any = lpeg.P(1)
 
-local function getdef (st, name, args)
+local function getdef (st, prefix, args)
    local alist = table.concat(args, ", ")
    if alist ~= "" then alist = ", " .. alist end
-   if not st.params[name] then
-     return "self[" .. string.format("%q", name) .. "](self, fix " .. alist .. ")" 
-   else
-     return name .. "(self, fix " .. alist .. ")" 
-   end
+   return prefix .. alist .. ")" 
 end
 
 local function patt_error (s, i)
+  i = i - 5
+  if i < 1 then i = 1 end
   local msg = (#s < i + 20) and s:sub(i)
                              or s:sub(i,i+20) .. "..."
   msg = ("pattern error near '%s'"):format(msg)
@@ -62,7 +60,22 @@ local arg_exp = lpeg.V"Exp" * lpeg.Carg(1) /
     return "function (" .. table.concat(st.params, ", ") .. ")\n return " .. exp .. "\nend"
   end
 
-local Call = lpeg.Carg(1) * name * lpeg.Ct((s * (arg_name + arg_exp))^0) 
+local call_name = name * '.' * name * lpeg.Carg(1) /
+  function (grammar, rule, st)
+    if not st.extras[grammar] then
+      error("external grammar " .. grammar .. " not defined")
+    end
+    return grammar .. "[" .. string.format("%q", rule) .. "](" .. grammar .. ", fix"
+  end + name * lpeg.Carg(1) /
+  function (name, st)
+    if not st.params[name] then
+      return "self[" .. string.format("%q", name) .. "](self, fix"
+    else
+      return name .. "(self, fix"
+    end
+ end
+
+local Call = lpeg.Carg(1) * call_name * lpeg.Ct((s * (arg_name + arg_exp))^0) 
 
 local num = lpeg.C(lpeg.R"09"^1) * S / tonumber
 
@@ -84,13 +97,13 @@ local Class =
                 function (c, p) return c == "^" and "lpeg.P(1) - (" .. p .. ")" or p end
   * "]"
 
-local function addparms(s, i, st, name, params)
+local function addparms(st, name, params)
   st.params = {}
   for i, p in ipairs(params) do
     st.params[p] = true
     st.params[i] = p
   end
-  return i, st, name, params
+  return st, name, params
 end
 
 local function adddef (acc, st, name, params, exp)
@@ -109,14 +122,22 @@ end
   return acc .. fun
 end
 
-local function firstdef (st, name, params, exp) 
+local function addextras(extras, st)
+  st.extras = { "super", super = true }
+  for i, name in ipairs(extras) do
+    st.extras[name] = true
+    st.extras[i+1] = name
+  end
+end
+
+local function firstdef (st, name, params, exp)
   local plist = table.concat(st.extras, ", ")
   if plist ~= "" then plist = ", " .. plist end
   return adddef([[
 local lpeg = require "lpeg"
 local leg = require"leg"
 
-local funcs, super]] .. plist .. [[ = ...
+local funcs]] .. plist .. [[ = ...
 
 funcs = funcs or {}
 super = super or leg.base
@@ -170,9 +191,12 @@ local grammar = lpeg.P{ "Grammar",
             + "{" * lpeg.V"Exp" * "}" / function (term) return "lpeg.C(" .. term .. ")" end
 	    + lpeg.P"." * lpeg.Cc("lpeg.P(1)")
 	    + "<" * Call * ">" / getdef;
-  Definition = lpeg.Cmt(Defname, addparms) * S * '<-' * lpeg.V"Exp";
-  Grammar = lpeg.Cf(lpeg.V"Definition" / firstdef * lpeg.Cg(lpeg.V"Definition")^0, adddef) /
-             function (g) return g .. "\n\nreturn meta_g" end
+  Definition = Defname / addparms * S * '<-' * lpeg.V"Exp";
+  Grammar = lpeg.Cf(lpeg.V"Begin" * S * lpeg.V"Definition" / firstdef * lpeg.Cg(lpeg.V"Definition")^0, adddef) /
+              function (g) return g .. "\n\nreturn meta_g" end * S * lpeg.V"End";
+  Begin = lpeg.P"grammar" * S * '(' * S * lpeg.Ct(lpeg.V"NameList") * lpeg.Carg(1) / addextras * S * ')';
+  End = lpeg.P"end" * -(S * '<-') * S;
+  NameList = (name * (S * ',' * S * name)^0)^-1;
 }
 
 local grammar = S * grammar * (-lpeg.P(1) + patt_error)
