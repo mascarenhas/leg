@@ -201,6 +201,8 @@ local grammar = lpeg.P{ "Grammar",
 
 local grammar = S * grammar * (-lpeg.P(1) + patt_error)
 
+local mt = {__mode = "v"}
+
 function compile (p)
   if type(p) == "function" then return p end
   local cp = grammar:match(p, 1, { params = {}, extras = {} })
@@ -215,4 +217,40 @@ function fix(g, s)
   return lpeg.P(fix_t)
 end
 
-base = {}
+function lift(patt)
+  return function () return patt end
+end
+
+base = {
+  nl = lift(lpeg.P"\n")
+}
+
+function updatelocale ()
+  local defs = {}
+  lpeg.locale(defs)
+  for name, patt in pairs(defs) do
+    base[name] = lift(patt)
+  end
+  base.a = base.alpha
+  base.c = base.cntrl
+  base.d = base.digit
+  base.g = base.graph
+  base.l = base.lower
+  base.p = base.punct
+  base.s = base.space
+  base.u = base.upper
+  base.w = base.alnum
+  base.x = base.xdigit
+  base.A = lift(any - defs.alpha)
+  base.C = lift(any - defs.cntrl)
+  base.D = lift(any - defs.digit)
+  base.G = lift(any - defs.graph)
+  base.L = lift(any - defs.lower)
+  base.P = lift(any - defs.punct)
+  base.S = lift(any - defs.space)
+  base.U = lift(any - defs.upper)
+  base.W = lift(any - defs.alnum)
+  base.X = lift(any - defs.xdigit)
+end
+
+updatelocale()
